@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>WatchParty</title>
+  <link rel="stylesheet" href="sidebar.css">
+</head>
+<body>
+  <header>
+    <div class="brand">🎬 WatchParty</div>
+    <div id="status" class="status">connecting…</div>
+    <button id="leaveParty" title="Leave party">✕</button>
+  </header>
+
+  <section id="inviteRow" class="invite hidden">
+    <input id="inviteLink" readonly>
+    <button id="copyInvite">Copy</button>
+  </section>
+
+  <section id="callSection">
+    <div id="videoGrid" class="video-grid"></div>
+    <div class="call-controls">
+      <button id="joinCall" class="primary">Join call</button>
+      <button id="muteMic" class="hidden">Mute</button>
+      <button id="muteCam" class="hidden">Cam off</button>
+      <button id="leaveCall" class="hidden danger">Hang up</button>
+    </div>
+    <div id="callError" class="call-error hidden">
+      Camera is blocked inside this page.
+      <button id="popOut">Open call in a window</button>
+    </div>
+  </section>
+
+  <section id="roster" class="roster"></section>
+
+  <section class="chat">
+    <div id="messages" class="messages"></div>
+    <form id="chatForm" class="chat-form">
+      <input id="chatInput" placeholder="Say something…" autocomplete="off" maxlength="500">
+      <button type="submit">Send</button>
+    </form>
+  </section>
+
+  <script src="sidebar.js"></script>
+</body>
+</html>

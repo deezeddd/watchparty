@@ -1,0 +1,13 @@
+{
+  "name": "watchparty-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "WebSocket signaling and sync relay for the WatchParty extension",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
