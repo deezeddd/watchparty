@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: watchparty-signal
+    runtime: node
+    plan: free
+    region: singapore
+    rootDir: server
+    buildCommand: npm install
+    startCommand: node server.js
+    healthCheckPath: /
