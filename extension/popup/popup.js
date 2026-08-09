@@ -1,6 +1,6 @@
 const $ = (id) => document.getElementById(id);
 
-const DEFAULT_SERVER = 'ws://localhost:8787';
+const DEFAULT_SERVER = 'wss://watchparty-signal.onrender.com';
 
 function randomRoom() {
   return Math.random().toString(36).slice(2, 8);

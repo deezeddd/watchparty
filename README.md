@@ -56,10 +56,12 @@ Netflix ships a new player.
 
 ## Known limitations (v0.1)
 
-- **Remote friends need a public server.** `ws://localhost:8787` works
-  only for testing with yourself. To watch with others, deploy `server/`
-  anywhere that supports WebSockets (Fly.io, Railway, a VPS) and use
-  `wss://your-host` in the popup. The invite link embeds the server URL.
+- The production server is deployed at
+  `wss://watchparty-signal.onrender.com` (Render free tier, auto-deploys
+  from this repo's `main` via `render.yaml`) and is the extension's
+  default. Free-tier catch: it sleeps after 15 idle minutes, so the
+  first join of the evening can take ~30-50 s while it wakes.
+  `ws://localhost:8787` still works for local hacking.
 - **NAT traversal is STUN-only.** Some peer pairs (common on Indian
   mobile networks with CGNAT) will fail to connect the video call until
   a TURN server is added to `RTC_CONFIG` in `sidebar/sidebar.js`.
