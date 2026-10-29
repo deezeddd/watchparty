@@ -112,6 +112,17 @@ button.danger { background: #b00610; }
   border-radius: 4px;
 }
 
+.tile .play-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  border: 0;
+  background: rgba(0,0,0,.6);
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+}
+
 .call-controls {
   display: flex;
   gap: 6px;

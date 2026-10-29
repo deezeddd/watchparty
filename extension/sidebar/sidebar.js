@@ -13,9 +13,10 @@
   const NAME = params.get('name') || 'Guest';
   const STANDALONE = params.get('mode') === 'window';
 
-  const RTC_CONFIG = {
-    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-  };
+  // STUN finds a direct route; TURN servers (sent by the signaling server
+  // on join) relay the media when a direct route is blocked, e.g. CGNAT.
+  const STUN = { urls: 'stun:stun.l.google.com:19302' };
+  let rtcConfig = { iceServers: [STUN] };
 
   const $ = (id) => document.getElementById(id);
 
@@ -95,6 +96,9 @@
     switch (msg.type) {
       case 'joined':
         selfId = msg.selfId;
+        if (Array.isArray(msg.iceServers) && msg.iceServers.length) {
+          rtcConfig = { iceServers: [STUN, ...msg.iceServers] };
+        }
         peers.clear();
         for (const p of msg.peers) peers.set(p.id, { name: p.name });
         refreshRoster();
@@ -195,6 +199,14 @@
   let localStream = null;
   let inCall = false;
   const pcs = new Map(); // peerId -> RTCPeerConnection
+  const pendingCandidates = new Map(); // peerId -> candidates that beat the SDP
+  const restarts = new Map(); // peerId -> ICE restarts tried
+  const MAX_RESTARTS = 2;
+
+  // When both sides offer at once, the "polite" side yields to the other.
+  function isPolite(peerId) {
+    return selfId < peerId;
+  }
 
   async function joinCall() {
     try {
@@ -234,15 +246,18 @@
 
   function handleCallMembership(msg) {
     if (msg.sub === 'join' && inCall && msg.from !== selfId) {
-      // We're already in the call: offer to the newcomer.
-      makeOffer(msg.from);
+      // We're already in the call. Only one fixed side of each pair sends
+      // the offer: when two people joined at once and both offered, the
+      // call stuck on "connecting" with black tiles.
+      if (!isPolite(msg.from)) makeOffer(msg.from);
+      else send({ type: 'signal', to: msg.from, data: { wantOffer: true } });
     } else if (msg.sub === 'leave') {
       dropPeerConnection(msg.from);
     }
   }
 
   function newPC(peerId) {
-    const pc = new RTCPeerConnection(RTC_CONFIG);
+    const pc = new RTCPeerConnection(rtcConfig);
     pcs.set(peerId, pc);
 
     if (localStream) {
@@ -256,46 +271,86 @@
     pc.ontrack = (e) => {
       const name = peers.get(peerId) ? peers.get(peerId).name : 'Peer';
       addTile(peerId, e.streams[0], name, false);
+      setTileState(peerId, pc.connectionState);
     };
 
     pc.onconnectionstatechange = () => {
-      if (['failed', 'closed', 'disconnected'].includes(pc.connectionState)) {
-        dropPeerConnection(peerId);
+      if (pcs.get(peerId) !== pc) return;
+      setTileState(peerId, pc.connectionState);
+      if (pc.connectionState === 'connected') {
+        restarts.delete(peerId);
+      } else if (pc.connectionState === 'failed') {
+        // 'disconnected' often recovers by itself; only act on 'failed'.
+        // One side restarts ICE so both don't send offers at once.
+        const tried = restarts.get(peerId) || 0;
+        if (!isPolite(peerId) && tried < MAX_RESTARTS) {
+          restarts.set(peerId, tried + 1);
+          sendOffer(peerId, pc, { iceRestart: true });
+        }
       }
     };
 
     return pc;
   }
 
+  async function sendOffer(peerId, pc, options) {
+    try {
+      const offer = await pc.createOffer(options);
+      await pc.setLocalDescription(offer);
+      send({ type: 'signal', to: peerId, data: { sdp: pc.localDescription } });
+    } catch (err) {
+      console.warn('WatchParty: offer failed', err);
+    }
+  }
+
   async function makeOffer(peerId) {
     dropPeerConnection(peerId);
-    const pc = newPC(peerId);
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    send({ type: 'signal', to: peerId, data: { sdp: pc.localDescription } });
+    restarts.delete(peerId);
+    await sendOffer(peerId, newPC(peerId));
+  }
+
+  async function flushCandidates(peerId, pc) {
+    const queued = pendingCandidates.get(peerId) || [];
+    pendingCandidates.delete(peerId);
+    for (const c of queued) {
+      try { await pc.addIceCandidate(c); } catch (err) { console.warn('WatchParty: bad candidate', err); }
+    }
   }
 
   async function handleSignal(msg) {
     const peerId = msg.from;
     const data = msg.data || {};
 
-    if (data.sdp) {
-      if (data.sdp.type === 'offer') {
-        if (!inCall) return; // not in the call; ignore rings
-        let pc = pcs.get(peerId) || newPC(peerId);
-        await pc.setRemoteDescription(data.sdp);
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-        send({ type: 'signal', to: peerId, data: { sdp: pc.localDescription } });
-      } else if (data.sdp.type === 'answer') {
+    try {
+      if (data.wantOffer) {
+        if (inCall && !pcs.has(peerId)) await makeOffer(peerId);
+      } else if (data.sdp) {
+        if (data.sdp.type === 'offer') {
+          if (!inCall) return; // not in the call; ignore rings
+          const pc = pcs.get(peerId) || newPC(peerId);
+          if (pc.signalingState !== 'stable' && !isPolite(peerId)) return; // our offer wins
+          await pc.setRemoteDescription(data.sdp); // rolls back our own offer if polite
+          await flushCandidates(peerId, pc);
+          await pc.setLocalDescription(await pc.createAnswer());
+          send({ type: 'signal', to: peerId, data: { sdp: pc.localDescription } });
+        } else if (data.sdp.type === 'answer') {
+          const pc = pcs.get(peerId);
+          if (!pc || pc.signalingState !== 'have-local-offer') return;
+          await pc.setRemoteDescription(data.sdp);
+          await flushCandidates(peerId, pc);
+        }
+      } else if (data.candidate) {
         const pc = pcs.get(peerId);
-        if (pc) await pc.setRemoteDescription(data.sdp);
+        if (pc && pc.remoteDescription) {
+          await pc.addIceCandidate(data.candidate);
+        } else {
+          // Arrived before the offer/answer was applied; keep it for later.
+          if (!pendingCandidates.has(peerId)) pendingCandidates.set(peerId, []);
+          pendingCandidates.get(peerId).push(data.candidate);
+        }
       }
-    } else if (data.candidate) {
-      const pc = pcs.get(peerId);
-      if (pc) {
-        try { await pc.addIceCandidate(data.candidate); } catch {}
-      }
+    } catch (err) {
+      console.warn('WatchParty: signal from', peerId, 'failed', err);
     }
   }
 
@@ -305,12 +360,16 @@
       pc.close();
       pcs.delete(peerId);
     }
+    pendingCandidates.delete(peerId);
     removeTile(peerId);
   }
 
   // ---------- video tiles ----------
 
   function addTile(id, stream, label, muted) {
+    // ontrack fires once per track (audio, video) with the same stream.
+    const existing = $('videoGrid').querySelector(`[data-peer="${CSS.escape(id)}"]`);
+    if (existing && existing.querySelector('video').srcObject === stream) return;
     removeTile(id);
     const tile = document.createElement('div');
     tile.className = 'tile';
@@ -323,9 +382,35 @@
     const tag = document.createElement('div');
     tag.className = 'tag';
     tag.textContent = label;
+    tag.dataset.label = label;
     tile.appendChild(v);
     tile.appendChild(tag);
     $('videoGrid').appendChild(tile);
+    // Unmuted video can be blocked from autoplaying; offer a click instead
+    // of leaving a black tile.
+    v.play().catch(() => {
+      const btn = document.createElement('button');
+      btn.className = 'play-overlay';
+      btn.textContent = 'Click to start video';
+      btn.addEventListener('click', () => {
+        v.play().then(() => btn.remove()).catch(() => {});
+      });
+      tile.appendChild(btn);
+    });
+  }
+
+  const STATE_TEXT = {
+    new: 'connecting…',
+    connecting: 'connecting…',
+    disconnected: 'reconnecting…',
+    failed: 'could not connect (network blocks direct calls)'
+  };
+
+  function setTileState(id, state) {
+    const tag = $('videoGrid').querySelector(`[data-peer="${CSS.escape(id)}"] .tag`);
+    if (!tag) return;
+    const extra = STATE_TEXT[state];
+    tag.textContent = extra ? `${tag.dataset.label} · ${extra}` : tag.dataset.label;
   }
 
   function removeTile(id) {

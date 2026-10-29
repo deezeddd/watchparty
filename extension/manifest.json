@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "WatchParty",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Watch together: synchronized playback, chat, and video calls on YouTube, Netflix, Hotstar, JioCinema, and any site with a video player.",
   "permissions": ["storage"],
   "action": {

@@ -62,10 +62,13 @@ Netflix ships a new player.
   default. Free-tier catch: it sleeps after 15 idle minutes, so the
   first join of the evening can take ~30-50 s while it wakes.
   `ws://localhost:8787` still works for local hacking.
-- **NAT traversal is STUN-only.** Some peer pairs (common on Indian
-  mobile networks with CGNAT) will fail to connect the video call until
-  a TURN server is added to `RTC_CONFIG` in `sidebar/sidebar.js`.
-  coturn or a hosted TURN (Twilio, Metered) drops in with one config line.
+- **The video call needs a TURN server on many networks.** Without one,
+  some peer pairs (common on Indian mobile networks with CGNAT) join the
+  call but see a black tile stuck on "connecting". Set `ICE_SERVERS` on
+  the server (Render > Environment) to a JSON list from a hosted TURN
+  (Metered, Twilio) or your own coturn, e.g.
+  `[{"urls":"turn:global.relay.metered.ca:443?transport=tcp","username":"...","credential":"..."}]`.
+  The server hands it to every client on join; no extension change needed.
 - **Camera inside the sidebar can be blocked** by some sites'
   Permissions-Policy. The sidebar detects this and offers
   "Open call in a window", which runs the same call UI in a separate

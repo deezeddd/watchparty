@@ -8,6 +8,18 @@ const { WebSocketServer } = require('ws');
 
 const PORT = process.env.PORT || 8787;
 
+// Optional TURN servers handed to clients on join, so the video call can
+// relay through them when a direct peer link is blocked (CGNAT, strict NAT).
+// ICE_SERVERS='[{"urls":"turn:host:3478","username":"u","credential":"p"}]'
+let ICE_SERVERS = [];
+if (process.env.ICE_SERVERS) {
+  try {
+    ICE_SERVERS = JSON.parse(process.env.ICE_SERVERS);
+  } catch {
+    console.error('ICE_SERVERS is not valid JSON; ignoring it');
+  }
+}
+
 const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
   res.end('WatchParty signaling server. Connect via WebSocket.\n');
@@ -58,7 +70,7 @@ wss.on('connection', (ws) => {
         const room = rooms.get(roomId);
         const peers = [...room.entries()].map(([id, p]) => ({ id, name: p.name }));
         room.set(ws.id, ws);
-        send(ws, { type: 'joined', selfId: ws.id, room: roomId, peers });
+        send(ws, { type: 'joined', selfId: ws.id, room: roomId, peers, iceServers: ICE_SERVERS });
         broadcast(ws, { type: 'peer-joined', id: ws.id, name: ws.name });
         break;
       }
